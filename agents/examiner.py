@@ -1,5 +1,4 @@
 from crewai import Agent
-from langchain_ollama import OllamaLLM
 from tools.quiz_format_tool import save_quiz_structured
 
 examiner_agent = Agent(
@@ -7,6 +6,6 @@ examiner_agent = Agent(
     goal="Design challenging Multiple Choice Questions (MCQs) for each lesson.",
     backstory="You specialize in psychometrics and educational evaluation to ensure student understanding.",
     tools=[save_quiz_structured],
-    llm=OllamaLLM(model="llama3"),
+    llm="ollama/llama3.1",
     verbose=True
 )

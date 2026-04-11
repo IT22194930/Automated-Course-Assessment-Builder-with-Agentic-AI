@@ -1,5 +1,7 @@
 import os
+from crewai.tools import tool
 
+@tool("create_course_directory")
 def create_course_directory(topic_name: str) -> str:
     """
     Creates a dedicated local directory for the course materials.

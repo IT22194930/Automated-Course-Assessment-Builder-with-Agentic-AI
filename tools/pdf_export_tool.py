@@ -1,5 +1,7 @@
 import os
+from crewai.tools import tool
 
+@tool("generate_final_report")
 def generate_final_report(content: str, course_topic: str) -> str:
     """
     Merges all course materials into a final Markdown report.

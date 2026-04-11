@@ -1,6 +1,8 @@
 import json
 import os
+from crewai.tools import tool
 
+@tool("save_quiz_structured")
 def save_quiz_structured(quiz_text: str, course_topic: str) -> str:
     """
     Saves the generated quiz into a structured JSON file for local storage.
