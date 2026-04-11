@@ -1,5 +1,7 @@
 import os
+from crewai.tools import tool
 
+@tool("fetch_reference_data")
 def fetch_reference_data(file_path: str) -> str:
     """
     Reads local educational reference materials to ground the agent's content generation.
