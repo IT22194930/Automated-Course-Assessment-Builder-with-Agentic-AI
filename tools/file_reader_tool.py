@@ -4,19 +4,10 @@ from crewai.tools import tool
 @tool("fetch_reference_data")
 def fetch_reference_data(file_path: str) -> str:
     """
-    Reads local educational reference materials to ground the agent's content generation.
-    
-    Args:
-        file_path (str): The local path to the reference text file.
-        
-    Returns:
-        str: The content of the file or a descriptive error message.
+    Reads local reference files. If file doesn't exist, returns a 
+    general educational prompt to help the agent generate content.
     """
-    if not os.path.isfile(file_path):
-        return f"Error: Reference file '{file_path}' not found locally."
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return file.read()
-    except Exception as e:
-        return f"An error occurred while reading the file: {str(e)}"
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return "Reference file not found. Please use your internal knowledge to write accurate content."
