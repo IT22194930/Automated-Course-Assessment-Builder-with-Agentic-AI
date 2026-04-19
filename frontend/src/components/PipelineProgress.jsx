@@ -3,9 +3,16 @@ import { Zap } from 'lucide-react';
 
 export default function PipelineProgress({ pipelineState }) {
   const { status, steps, progress, current_agent, error } = pipelineState;
-  const isActive = status === 'running' || status === 'done';
+  const isActive = ['running', 'done', 'stopped', 'error'].includes(status);
 
-  if (!isActive && status !== 'error') return null;
+  if (!isActive) return null;
+
+  const statusMeta = {
+    running: { color: '#818cf8', label: `Active: ${current_agent}` },
+    done:    { color: '#34d399', label: '✓ All agents completed successfully' },
+    stopped: { color: '#f59e0b', label: '⏹ Pipeline stopped by user' },
+    error:   { color: '#f87171', label: '✗ Pipeline error occurred' },
+  }[status] || { color: '#64748b', label: '' };
 
   return (
     <div className="glass-card fade-in-up" style={{ padding: 28, marginTop: 32 }}>
@@ -21,21 +28,9 @@ export default function PipelineProgress({ pipelineState }) {
           </div>
           <div>
             <h3 style={{ fontWeight: 700, fontSize: '1rem', color: '#f1f5f9' }}>Pipeline Progress</h3>
-            {status === 'running' && (
-              <p style={{ fontSize: '0.78rem', color: '#818cf8', marginTop: 1 }}>
-                Active: {current_agent}
-              </p>
-            )}
-            {status === 'done' && (
-              <p style={{ fontSize: '0.78rem', color: '#34d399', marginTop: 1 }}>
-                ✓ All agents completed successfully
-              </p>
-            )}
-            {status === 'error' && (
-              <p style={{ fontSize: '0.78rem', color: '#f87171', marginTop: 1 }}>
-                ✗ Pipeline error occurred
-              </p>
-            )}
+            <p style={{ fontSize: '0.78rem', color: statusMeta.color, marginTop: 1 }}>
+              {statusMeta.label}
+            </p>
           </div>
         </div>
         <span style={{
@@ -52,12 +47,15 @@ export default function PipelineProgress({ pipelineState }) {
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
 
-      {/* Error box */}
-      {status === 'error' && error && (
+      {/* Status messages */}
+      {(status === 'error' || status === 'stopped') && error && (
         <div style={{
-          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          background: status === 'stopped' ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)',
+          border: `1px solid ${status === 'stopped' ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
           borderRadius: 10, padding: '12px 16px', marginBottom: 20,
-          fontSize: '0.82rem', color: '#f87171', fontFamily: 'JetBrains Mono, monospace',
+          fontSize: '0.82rem',
+          color: status === 'stopped' ? '#fbbf24' : '#f87171',
+          fontFamily: 'JetBrains Mono, monospace',
         }}>
           {error}
         </div>

@@ -80,7 +80,7 @@ def save_quiz_structured(quiz_text: str, course_topic: str) -> str:
         Correct Answer: A
 
     Args:
-        quiz_text (str): The quiz in Markdown — 15 MCQs across 5 modules.
+        quiz_text (str): The quiz in Markdown - 15 MCQs across 5 modules.
         course_topic (str): Used to name the output folder and files.
 
     Returns:
@@ -96,7 +96,7 @@ def save_quiz_structured(quiz_text: str, course_topic: str) -> str:
         # ── Markdown ──────────────────────────────────────────────────────
         md_path = f"{folder}/quiz.md"
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(f"# {course_topic} — Quiz\n\n")
+            f.write(f"# {course_topic} - Quiz\n\n")
             f.write(formatted)
             f.write("\n")
 
