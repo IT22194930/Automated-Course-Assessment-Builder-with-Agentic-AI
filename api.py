@@ -1,5 +1,5 @@
 """
-FastAPI backend — Automated Course Assessment Builder
+FastAPI backend - Automated Course Assessment Builder
 Supports:
   • Full pipeline run (POST /api/generate)
   • Step-by-step individual agent runs
@@ -8,9 +8,9 @@ Supports:
       POST /api/step/quiz
       POST /api/step/report
   • Status & outputs
-      GET  /api/status         — full pipeline status
-      GET  /api/step/status    — per-step status map
-      GET  /api/outputs        — all file contents
+      GET  /api/status         - full pipeline status
+      GET  /api/step/status    - per-step status map
+      GET  /api/outputs        - all file contents
 """
 
 import os
@@ -35,6 +35,9 @@ app.add_middleware(
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 _lock = threading.Lock()
+
+# Stop flag: set to True to request a graceful abort between agent steps
+_stop_requested = {"value": False}
 
 # Full-pipeline state (for /api/generate)
 pipeline_state = {
@@ -188,8 +191,34 @@ def _run_lessons(topic: str):
         _set_step_status("lessons", "error", str(e))
 
 
+def _extract_module_text(lessons_md: str, module_num: int) -> str:
+    """
+    Extract the text of a single module from the combined lessons Markdown.
+    Looks for '## Module N' headings and slices until the next '## Module' heading.
+    """
+    lines = lessons_md.splitlines()
+    start = None
+    end = len(lines)
+    for i, line in enumerate(lines):
+        # Match '## Module N' (case-insensitive, with or without colon)
+        if line.strip().lower().startswith(f"## module {module_num}"):
+            start = i
+        elif start is not None and i > start:
+            # New ## Module heading marks the next section
+            if line.strip().lower().startswith("## module ") and not line.strip().lower().startswith(f"## module {module_num}"):
+                end = i
+                break
+    if start is None:
+        return ""
+    return "\n".join(lines[start:end]).strip()
+
+
 def _run_quiz(topic: str):
-    """Run only the Examiner agent, injecting lessons from file."""
+    """
+    Run the Examiner agent ONCE PER MODULE (5 times total).
+    Each call generates exactly 3 MCQs for one module.
+    Results are concatenated into quiz.md.
+    """
     _set_step_status("quiz", "running")
     try:
         from crewai import Crew, Process, Task
@@ -198,67 +227,122 @@ def _run_quiz(topic: str):
         out_dir = _output_dir(topic)
         lessons = _read_file(f"{out_dir}/lessons.md")
 
-        task = Task(
-            description=(
-                f"Here are the lessons for '{topic}':\n\n{lessons}\n\n"
-                "Create a multiple-choice quiz from these lessons.\n"
-                "Requirements:\n"
-                "- EXACTLY 3 questions for EACH of the 5 modules = 15 questions total\n"
-                "- Group questions by module with a '## Module N Quiz' heading\n"
-                "- Every question must have options A, B, C, D and one clearly marked Correct Answer\n"
-                "- Do NOT stop after 3 questions. You must produce 15 questions across all 5 modules."
-            ),
-            expected_output=(
-                "A Markdown document with 15 MCQ questions (3 per module) grouped by module. "
-                "Each question has 4 options (A-D) and a Correct Answer line."
-            ),
-            agent=examiner_agent,
-            output_file=f"{out_dir}/quiz.md",
-        )
-        Crew(agents=[examiner_agent], tasks=[task],
-             process=Process.sequential, verbose=True).kickoff(inputs={"topic": topic})
+        all_quiz_sections: list[str] = []
+
+        for module_num in range(1, 6):   # Modules 1 – 5
+            # Extract just this module's lesson content
+            module_text = _extract_module_text(lessons, module_num)
+            if not module_text:
+                # Fallback: pass the full lessons and specify the module number
+                module_text = lessons
+                context_note = (
+                    f"Focus ONLY on Module {module_num} content from the lessons below."
+                )
+            else:
+                context_note = f"The lesson content for Module {module_num} is provided below."
+
+            task = Task(
+                description=(
+                    f"{context_note}\n\n"
+                    f"{module_text}\n\n"
+                    f"Using ONLY the Module {module_num} content above, write EXACTLY 3 multiple-choice questions.\n"
+                    "Format requirements (follow EXACTLY):\n"
+                    f"## Module {module_num} Quiz\n"
+                    "\n"
+                    "1. [Question text]\n"
+                    "   A) [Option A]\n"
+                    "   B) [Option B]\n"
+                    "   C) [Option C]\n"
+                    "   D) [Option D]\n"
+                    "\n"
+                    "   Correct Answer: [Letter]) [Answer text]\n"
+                    "\n"
+                    "2. [Question text]\n"
+                    "   A) ...\n"
+                    "   ... (same pattern)\n"
+                    "\n"
+                    "3. [Question text]\n"
+                    "   A) ...\n"
+                    "   ... (same pattern)\n"
+                    "\n"
+                    "Output ONLY the 3 questions in the format above. No JSON, no code blocks, no extra commentary."
+                ),
+                expected_output=(
+                    f"A '## Module {module_num} Quiz' heading followed by exactly 3 MCQ questions, "
+                    "each with options A-D on separate lines and a 'Correct Answer:' line."
+                ),
+                agent=examiner_agent,
+            )
+
+            crew = Crew(
+                agents=[examiner_agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=True,
+            )
+            result = crew.kickoff(inputs={"topic": topic})
+
+            # crew.kickoff returns a CrewOutput object; get the raw string
+            section_text = str(result).strip()
+            # Ensure the heading is present even if the LLM dropped it
+            if not section_text.startswith(f"## Module {module_num}"):
+                section_text = f"## Module {module_num} Quiz\n\n" + section_text
+
+            all_quiz_sections.append(section_text)
+
+        # Write all 5 modules into one quiz.md
+        full_quiz = "\n\n---\n\n".join(all_quiz_sections)
+        quiz_path = Path(out_dir) / "quiz.md"
+        quiz_path.write_text(full_quiz.strip() + "\n", encoding="utf-8")
+
         _set_step_status("quiz", "done")
     except Exception as e:
         _set_step_status("quiz", "error", str(e))
 
 
 def _run_report(topic: str):
-    """Run only the Auditor agent, injecting all previous files."""
+    """Run the Auditor agent for QA review, then compile the final report from source files."""
     _set_step_status("report", "running")
     try:
         from crewai import Crew, Process, Task
         from agents.auditor import auditor_agent
+        from tools.pdf_export_tool import compile_final_report
 
         out_dir = _output_dir(topic)
         syllabus = _read_file(f"{out_dir}/syllabus.md")
         lessons  = _read_file(f"{out_dir}/lessons.md")
         quiz     = _read_file(f"{out_dir}/quiz.md")
 
+        # Step 1 - Auditor writes a quality-review summary (no tool call)
         task = Task(
             description=(
-                f"Review the following course materials for '{topic}' and compile them into "
-                "a single comprehensive Markdown document.\n\n"
+                f"Review the following course materials for '{topic}' and write a concise "
+                "quality-review summary in Markdown.\n\n"
                 f"**SYLLABUS:**\n{syllabus}\n\n"
-                f"**LESSONS:**\n{lessons}\n\n"
-                f"**QUIZ:**\n{quiz}\n\n"
-                "The final document must include:\n"
-                "1. A '# Course Title' heading\n"
-                "2. A '## Syllabus' section listing all 5 modules\n"
-                "3. A '## Lessons' section with all 5 detailed lessons\n"
-                "4. A '## Assessment' section with all 15 MCQ questions grouped by module\n"
-                "Output ONLY clean Markdown — no JSON, no function call syntax, no code blocks.\n"
-                f"Then call the generate_final_report tool with this compiled content and course_topic='{topic}' to save it."
+                f"**LESSONS (first 1000 chars):**\n{lessons[:1000]}\n\n"
+                f"**QUIZ (first 800 chars):**\n{quiz[:800]}\n\n"
+                "Your QA summary must cover:\n"
+                "1. Overall course structure assessment\n"
+                "2. Lesson quality observations\n"
+                "3. Quiz coverage and correctness notes\n"
+                "Output ONLY clean Markdown prose - no JSON, no function calls, no code blocks."
             ),
             expected_output=(
-                "A single well-structured Markdown document containing the complete course: "
-                "syllabus, 5 lessons, and 15 quiz questions — all in clean Markdown format."
+                "A concise Markdown quality-review summary covering course structure, "
+                "lesson quality, and quiz coverage."
             ),
             agent=auditor_agent,
-            output_file=f"{out_dir}/final_report.md",
+            output_file=f"{out_dir}/audit_summary.md",
         )
         Crew(agents=[auditor_agent], tasks=[task],
              process=Process.sequential, verbose=True).kickoff(inputs={"topic": topic})
-        _set_step_status("report", "done")
+
+        # Step 2 - Deterministically assemble final_report.md from source files
+        result = compile_final_report(topic=topic, out_dir=out_dir)
+        if result.startswith("Error"):
+            _set_step_status("report", "error", result)
+        else:
+            _set_step_status("report", "done")
     except Exception as e:
         _set_step_status("report", "error", str(e))
 
@@ -280,8 +364,20 @@ def _run_full_pipeline(topic: str):
         ("Assessment Specialist",   _run_quiz),
         ("Quality Assurance Lead",  _run_report),
     ]
+    step_keys = ["syllabus", "lessons", "quiz", "report"]
 
     for i, (agent_name, runner) in enumerate(step_runners):
+        # ── Check stop flag BEFORE starting each step ──────────────────────
+        with _lock:
+            if _stop_requested["value"]:
+                pipeline_state["status"] = "stopped"
+                pipeline_state["current_agent"] = "Stopped by user"
+                pipeline_state["error"] = "Pipeline stopped by user."
+                for j in range(i, len(pipeline_state["steps"])):
+                    pipeline_state["steps"][j]["status"] = "waiting"
+                _stop_requested["value"] = False
+                return
+
         with _lock:
             pipeline_state["current_step"] = i
             pipeline_state["current_agent"] = agent_name
@@ -292,8 +388,8 @@ def _run_full_pipeline(topic: str):
         runner(topic)  # Run single agent step
 
         # If a step errored, abort pipeline
-        if step_states[["syllabus","lessons","quiz","report"][i]]["status"] == "error":
-            err = step_states[["syllabus","lessons","quiz","report"][i]]["error"]
+        if step_states[step_keys[i]]["status"] == "error":
+            err = step_states[step_keys[i]]["error"]
             with _lock:
                 pipeline_state["status"] = "error"
                 pipeline_state["error"] = err
@@ -306,6 +402,7 @@ def _run_full_pipeline(topic: str):
         pipeline_state["status"] = "done"
         pipeline_state["progress"] = 100
         pipeline_state["current_agent"] = "Complete"
+        _stop_requested["value"] = False
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -338,6 +435,35 @@ def generate(req: GenerateRequest):
 def get_status():
     with _lock:
         return dict(pipeline_state)
+
+
+@app.post("/api/stop")
+def stop_pipeline():
+    """Request the full pipeline to abort after the current agent step finishes."""
+    with _lock:
+        if pipeline_state["status"] != "running":
+            raise HTTPException(status_code=400, detail="Pipeline is not running.")
+        _stop_requested["value"] = True
+        # Reflect stop-pending in status so the UI can show it immediately
+        pipeline_state["error"] = "Stop requested - waiting for current agent to finish…"
+    return {"message": "Stop requested. Pipeline will halt after the current agent finishes."}
+
+
+@app.post("/api/step/stop")
+def stop_step():
+    """
+    Mark the currently-running step as 'stopped'.
+    Because CrewAI tasks run in a blocking thread we cannot kill them mid-run,
+    but we flip the status so the UI unblocks and the step can be re-run.
+    """
+    with _lock:
+        for key, state in step_states.items():
+            if state["status"] == "running":
+                step_states[key]["status"] = "idle"
+                step_states[key]["error"] = "Stopped by user."
+        # Also set the stop flag in case the full-pipeline runner is active
+        _stop_requested["value"] = True
+    return {"message": "Stop requested for running step."}
 
 
 # ── Step-by-step routes ────────────────────────────────────────────────────────
@@ -416,10 +542,11 @@ def outputs_by_topic(topic_slug: str):
     if not base.exists():
         raise HTTPException(status_code=404, detail=f"Topic '{topic_slug}' not found.")
     return {
-        "syllabus":     _read_file(str(base / "syllabus.md")),
-        "lessons":      _read_file(str(base / "lessons.md")),
-        "quiz":         _read_file(str(base / "quiz.md")),
-        "final_report": _read_file(str(base / "final_report.md")),
+        "syllabus":      _read_file(str(base / "syllabus.md")),
+        "lessons":       _read_file(str(base / "lessons.md")),
+        "quiz":          _read_file(str(base / "quiz.md")),
+        "final_report":  _read_file(str(base / "final_report.md")),
+        "audit_summary": _read_file(str(base / "audit_summary.md")),
     }
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
@@ -427,13 +554,14 @@ def outputs_by_topic(topic_slug: str):
 def outputs():
     topic = current_topic["value"] or pipeline_state.get("topic", "")
     if not topic:
-        return {"syllabus": "", "lessons": "", "quiz": "", "final_report": ""}
+        return {"syllabus": "", "lessons": "", "quiz": "", "final_report": "", "audit_summary": ""}
     base = _output_dir(topic)
     return {
-        "syllabus":     _read_file(f"{base}/syllabus.md"),
-        "lessons":      _read_file(f"{base}/lessons.md"),
-        "quiz":         _read_file(f"{base}/quiz.md"),
-        "final_report": _read_file(f"{base}/final_report.md"),
+        "syllabus":      _read_file(f"{base}/syllabus.md"),
+        "lessons":       _read_file(f"{base}/lessons.md"),
+        "quiz":          _read_file(f"{base}/quiz.md"),
+        "final_report":  _read_file(f"{base}/final_report.md"),
+        "audit_summary": _read_file(f"{base}/audit_summary.md"),
     }
 
 @app.get("/")

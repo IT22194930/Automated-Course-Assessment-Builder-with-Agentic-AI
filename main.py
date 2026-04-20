@@ -1,9 +1,11 @@
 import os
+from pathlib import Path
 from crewai import Crew, Process, Task
 from agents.planner import planner_agent
 from agents.writer import writer_agent
 from agents.examiner import examiner_agent
 from agents.auditor import auditor_agent
+from tools.pdf_export_tool import compile_final_report
 
 # Pre-create the output directory so file writes never fail
 OUTPUT_DIR = "./data/cloud_computing_fundamentals"
@@ -57,26 +59,23 @@ task_examiner = Task(
     output_file=f"{OUTPUT_DIR}/quiz.md"
 )
 
-# Task 4: Final Audit and Saving
+# Task 4: QA Review (auditor writes summary; report is compiled by code)
 task_auditor = Task(
     description=(
-        "Review all content for quality. Compile the syllabus, all 5 module lessons, and all 15 quiz questions into "
-        "a single comprehensive Markdown document. "
-        "The final document must include:\n"
-        "1. A '# Course Title' heading\n"
-        "2. A '## Syllabus' section listing all 5 modules\n"
-        "3. A '## Lessons' section with all 5 detailed lessons\n"
-        "4. A '## Assessment' section with all 15 MCQ questions grouped by module\n"
-        "Output ONLY clean Markdown — no JSON, no function call syntax, no code blocks. "
-        "Then call the generate_final_report tool with this compiled content and course_topic='Cloud Computing Fundamentals' to save it."
+        "Review the course materials and write a concise quality-review summary in Markdown. "
+        "Your summary must cover:\n"
+        "1. Overall course structure assessment\n"
+        "2. Lesson quality observations\n"
+        "3. Quiz coverage and correctness notes\n"
+        "Output ONLY clean Markdown prose - no JSON, no function calls, no code blocks."
     ),
     expected_output=(
-        "A single well-structured Markdown document containing the complete course: "
-        "syllabus, 5 lessons, and 15 quiz questions — all in clean Markdown format."
+        "A concise Markdown quality-review summary covering course structure, "
+        "lesson quality, and quiz coverage."
     ),
     agent=auditor_agent,
     context=[task_planner, task_writer, task_examiner],
-    output_file=f"{OUTPUT_DIR}/final_report.md"
+    output_file=f"{OUTPUT_DIR}/audit_summary.md"
 )
 
 # Orchestration
@@ -89,7 +88,14 @@ course_crew = Crew(
 
 if __name__ == "__main__":
     result = course_crew.kickoff(inputs={'topic': 'Cloud Computing Fundamentals'})
+
+    # Deterministically compile the final report from source files
+    report_path = compile_final_report(
+        topic="Cloud Computing Fundamentals",
+        out_dir=OUTPUT_DIR
+    )
     print("\n\n########################")
     print("## FINAL SYSTEM OUTPUT ##")
     print("########################\n")
-    print(result)
+    print(f"Final report saved at: {report_path}")
+    print(result)

@@ -15,13 +15,13 @@ def test_final_report_exists():
         "Run 'python main.py' first to generate the pipeline outputs."
     )
     assert os.path.getsize(report_path) > 0, "final_report.md exists but is empty."
-    print("Member 4 (Auditor) Test: PASSED — final_report.md present and non-empty.")
+    print("Member 4 (Auditor) Test: PASSED - final_report.md present and non-empty.")
 
 
 def test_intermediate_files_exist():
     """
     Validates that intermediate pipeline artefacts (syllabus, lessons, quiz)
-    were all persisted locally — proving each agent completed its task.
+    were all persisted locally - proving each agent completed its task.
     """
     expected_files = ["syllabus.md", "lessons.md", "quiz.md", "final_report.md"]
     for filename in expected_files:
@@ -31,7 +31,7 @@ def test_intermediate_files_exist():
             "Run 'python main.py' first."
         )
         assert os.path.getsize(path) > 0, f"'{filename}' exists but is empty."
-    print("Member 4 (Auditor) Test: PASSED — all pipeline artefacts present.")
+    print("Member 4 (Auditor) Test: PASSED - all pipeline artefacts present.")
 
 
 if __name__ == "__main__":
