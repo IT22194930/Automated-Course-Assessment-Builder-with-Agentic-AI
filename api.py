@@ -144,7 +144,11 @@ def _run_syllabus(topic: str):
         os.makedirs(out_dir, exist_ok=True)
 
         task = Task(
-            description=f"Design a 5-module syllabus for the topic: {topic}. Create the folder first.",
+            description=(
+                f"First call the tool create_course_directory with topic_name='{topic}'. "
+                "After the tool succeeds, design a 5-module syllabus for the topic. "
+                "Output ONLY the syllabus in Markdown."
+            ),
             expected_output="A Markdown list of 5 module titles with 2 learning objectives each.",
             agent=planner_agent,
             output_file=f"{out_dir}/syllabus.md",
@@ -168,6 +172,7 @@ def _run_lessons(topic: str):
 
         task = Task(
             description=(
+                f"First call fetch_reference_data with file_path='{out_dir}/syllabus.md' and use that as source context.\n\n"
                 f"Here is the 5-module syllabus for '{topic}':\n\n{syllabus}\n\n"
                 "Using this syllabus, write a detailed educational lesson for EACH of the 5 modules.\n"
                 "Requirements:\n"
@@ -290,10 +295,33 @@ def _run_quiz(topic: str):
 
             all_quiz_sections.append(section_text)
 
-        # Write all 5 modules into one quiz.md
+        # Build all 5 modules into one combined quiz payload
         full_quiz = "\n\n---\n\n".join(all_quiz_sections)
+
+        # Ask the examiner to persist the combined quiz via tool call.
+        save_task = Task(
+            description=(
+                "Call save_quiz_structured exactly once with these arguments:\n"
+                f"- quiz_text: the full quiz content below\n"
+                f"- course_topic: '{topic}'\n\n"
+                "Full quiz content:\n"
+                f"{full_quiz}\n\n"
+                "Return only the tool result string."
+            ),
+            expected_output="A confirmation string showing quiz.md and quiz.json save paths.",
+            agent=examiner_agent,
+        )
+        Crew(
+            agents=[examiner_agent],
+            tasks=[save_task],
+            process=Process.sequential,
+            verbose=True,
+        ).kickoff(inputs={"topic": topic})
+
+        # Safety fallback if tool invocation was skipped or failed silently.
         quiz_path = Path(out_dir) / "quiz.md"
-        quiz_path.write_text(full_quiz.strip() + "\n", encoding="utf-8")
+        if not quiz_path.exists() or quiz_path.stat().st_size == 0:
+            quiz_path.write_text(full_quiz.strip() + "\n", encoding="utf-8")
 
         _set_step_status("quiz", "done")
     except Exception as e:
@@ -341,8 +369,30 @@ def _run_report(topic: str):
         result = compile_final_report(topic=topic, out_dir=out_dir)
         if result.startswith("Error"):
             _set_step_status("report", "error", result)
-        else:
-            _set_step_status("report", "done")
+            return
+
+        # Step 3 - Invoke agent tool wrapper to save/sanitise final report content.
+        compiled = _read_file(f"{out_dir}/final_report.md")
+        tool_task = Task(
+            description=(
+                "Call generate_final_report exactly once with these arguments:\n"
+                f"- content: the full Markdown below\n"
+                f"- course_topic: '{topic}'\n\n"
+                "Markdown content:\n"
+                f"{compiled}\n\n"
+                "Return only the tool result string."
+            ),
+            expected_output="A confirmation string containing the final_report.md save path.",
+            agent=auditor_agent,
+        )
+        Crew(
+            agents=[auditor_agent],
+            tasks=[tool_task],
+            process=Process.sequential,
+            verbose=True,
+        ).kickoff(inputs={"topic": topic})
+
+        _set_step_status("report", "done")
     except Exception as e:
         _set_step_status("report", "error", str(e))
 

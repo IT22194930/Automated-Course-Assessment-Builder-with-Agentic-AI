@@ -1,4 +1,5 @@
 from crewai import Agent
+from tools.file_reader_tool import fetch_reference_data
 
 writer_agent = Agent(
     role="Senior Content Developer",
@@ -16,7 +17,7 @@ writer_agent = Agent(
         "Output ONLY clean Markdown text with clear headings. "
         "Do NOT output JSON, function calls, or code blocks of any kind."
     ),
-    tools=[],          
+    tools=[fetch_reference_data],
     llm="ollama/llama3.2",
     allow_delegation=False,
     max_iter=3,
