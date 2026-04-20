@@ -1,4 +1,5 @@
 from crewai import Agent
+from tools.pdf_export_tool import generate_final_report
 
 auditor_agent = Agent(
     role="Quality Assurance Lead",
@@ -16,7 +17,7 @@ auditor_agent = Agent(
         "produce concise audit reports in clean, readable Markdown. "
         "You NEVER output raw JSON or function definitions - only well-formatted Markdown prose."
     ),
-    tools=[],         
+    tools=[generate_final_report],
     llm="ollama/llama3.2",
     allow_delegation=False,
     max_iter=3,

@@ -1,4 +1,5 @@
 from crewai import Agent
+from tools.folder_tool import create_course_directory
 
 planner_agent = Agent(
     role="Syllabus Architect",
@@ -11,7 +12,7 @@ planner_agent = Agent(
         "Do not explain what you are doing. Do not output JSON or any function call syntax. "
         "Just output clean Markdown headers and bullet points for the 5-module syllabus."
     ),
-    tools=[],           
+    tools=[create_course_directory],
     llm="ollama/llama3.2",
     allow_delegation=False,
     max_iter=3,

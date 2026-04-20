@@ -1,4 +1,5 @@
 from crewai import Agent
+from tools.quiz_format_tool import save_quiz_structured
 
 examiner_agent = Agent(
     role="Assessment Specialist",
@@ -12,7 +13,7 @@ examiner_agent = Agent(
         "You ALWAYS use the heading format given to you. "
         "Output ONLY clean Markdown — no JSON, no function calls, no code blocks."
     ),
-    tools=[],
+    tools=[save_quiz_structured],
     llm="ollama/llama3.2",
     allow_delegation=False,
     max_iter=3,

@@ -13,7 +13,10 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Task 1: Curriculum Design [cite: 17]
 task_planner = Task(
-    description="Design a 5-module syllabus for the topic: {topic}. Create the folder first.",
+    description=(
+        "First call create_course_directory with topic_name='{topic}'. "
+        "Then design a 5-module syllabus for the topic: {topic}."
+    ),
     expected_output="A Markdown list of 5 module titles with 2 learning objectives each.",
     agent=planner_agent,
     output_file=f"{OUTPUT_DIR}/syllabus.md"
@@ -22,6 +25,8 @@ task_planner = Task(
 # Task 2: Content Writing [cite: 20]
 task_writer = Task(
     description=(
+        "First call fetch_reference_data with file_path='./data/cloud_computing_fundamentals/syllabus.md' "
+        "and use that as source context.\n"
         "Using the 5-module syllabus provided by the planner, write a detailed educational lesson "
         "for EACH of the 5 modules. "
         "Requirements:\n"
@@ -44,6 +49,8 @@ task_writer = Task(
 task_examiner = Task(
     description=(
         "Using the lessons produced by the writer, create a multiple-choice quiz. "
+        "After drafting the full quiz, call save_quiz_structured with the generated quiz text "
+        "and course_topic='Cloud Computing Fundamentals'. "
         "Requirements:\n"
         "- EXACTLY 3 questions for EACH of the 5 modules = 15 questions total\n"
         "- Group questions by module with a '## Module N Quiz' heading\n"
@@ -63,6 +70,8 @@ task_examiner = Task(
 task_auditor = Task(
     description=(
         "Review the course materials and write a concise quality-review summary in Markdown. "
+        "Then call generate_final_report with your compiled Markdown content and "
+        "course_topic='Cloud Computing Fundamentals'. "
         "Your summary must cover:\n"
         "1. Overall course structure assessment\n"
         "2. Lesson quality observations\n"
